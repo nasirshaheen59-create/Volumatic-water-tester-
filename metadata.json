@@ -1,0 +1,7 @@
+{
+  "name": "PakWater Safety Check",
+  "description": "Check drinking water quality in major Pakistani cities based on the 2021 PCRWR report. Finds the nearest monitored location and provides detailed contaminant analysis.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
