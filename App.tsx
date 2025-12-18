@@ -22,14 +22,12 @@ const App: React.FC = () => {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   
-  // Live Analysis State
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [analysisError, setAnalysisError] = useState<boolean>(false);
   
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // Close suggestions on click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
@@ -40,7 +38,6 @@ const App: React.FC = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Handle Input Change & Generate Suggestions
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearchInput(value);
@@ -49,12 +46,10 @@ const App: React.FC = () => {
       const query = value.toLowerCase();
       const newSuggestions: Suggestion[] = [];
 
-      // Find matching cities
       CITIES_DATA.forEach(city => {
         if (city.name.toLowerCase().includes(query)) {
           newSuggestions.push({ name: city.name, type: 'City' });
         }
-        // Find matching sample points
         if (city.samplePoints) {
           city.samplePoints.forEach(point => {
             if (point.name.toLowerCase().includes(query)) {
@@ -63,7 +58,6 @@ const App: React.FC = () => {
           });
         }
       });
-      // Limit suggestions to 6 items
       setSuggestions(newSuggestions.slice(0, 6));
       setShowSuggestions(true);
     } else {
@@ -76,17 +70,15 @@ const App: React.FC = () => {
     setSearchInput(suggestion.name);
     setShowSuggestions(false);
     
-    // Automatically trigger search
     if (suggestion.type === 'City') {
       handleCitySelect(suggestion.name);
     } else if (suggestion.type === 'Area' && suggestion.parentCity) {
-      // Find the city and set result directly
       const cityData = CITIES_DATA.find(c => c.name === suggestion.parentCity);
       if (cityData) {
         setResult({ data: cityData, distance: 0, isExactMatch: true });
         setSelectedCity(cityData.name);
         setError(null);
-        triggerLiveAnalysis(cityData.name);
+        triggerLiveAnalysis(suggestion.name + " in " + cityData.name);
       }
     }
   };
@@ -108,8 +100,6 @@ const App: React.FC = () => {
     setAnalysisLoading(true);
     
     try {
-      // Append Pakistan to help the AI contextualize custom/generic locations
-      // if it's a known city, we just use the name, but for general inputs, context helps.
       const searchContext = location.toLowerCase().includes('pakistan') ? location : `${location}, Pakistan`;
       const analysis = await getWaterQualityAnalysis(searchContext);
       if (analysis) {
@@ -131,23 +121,17 @@ const App: React.FC = () => {
     setShowSuggestions(false);
 
     setLoading(true);
-    setAnalysisResult(null); // Reset previous analysis
+    setAnalysisResult(null);
     setAnalysisError(false);
     setError(null);
     setResult(null);
-    // Note: Do NOT clear selectedCity here, we might need it for fallback context
 
     const query = searchInput.trim().toLowerCase();
-    
-    // Keep track of the location name we will send to the Live Analysis
-    // By default, it's what the user typed.
-    let liveAnalysisQuery = searchInput; 
+    let liveQuery = searchInput;
 
     try {
-      // 1. Try exact city name match
+      // 1. Direct match in local data
       let match = CITIES_DATA.find(c => c.name.toLowerCase() === query);
-      
-      // 2. Try sample point match (local data)
       if (!match) {
         match = CITIES_DATA.find(city => 
           city.samplePoints?.some(point => point.name.toLowerCase().includes(query))
@@ -155,66 +139,50 @@ const App: React.FC = () => {
       }
 
       if (match) {
-        // Direct local match found
         setResult({ data: match, distance: 0, isExactMatch: true });
         setSelectedCity(match.name);
-        liveAnalysisQuery = match.name;
+        liveQuery = match.name;
       } else {
-        // 3. AI Resolution
-        // If a city is currently selected, add it to the context for the AI resolver
-        const resolverQuery = selectedCity ? `${searchInput}, ${selectedCity}` : searchInput;
-        const nearestCityName = await findNearestCityByName(resolverQuery);
+        // 2. AI Resolution (Landmarks/Universities)
+        const resolverContext = selectedCity ? `${searchInput} in ${selectedCity}` : searchInput;
+        const aiCityName = await findNearestCityByName(resolverContext);
         
-        if (nearestCityName) {
-          const cityData = CITIES_DATA.find(c => c.name === nearestCityName);
+        if (aiCityName) {
+          const cityData = CITIES_DATA.find(c => c.name === aiCityName);
           if (cityData) {
-             // We found a city via AI (e.g. "BZU" -> Multan)
-             // We show the City Data, but mark isExactMatch as false so the UI shows "General Data"
-             setResult({ data: cityData, distance: 0, isExactMatch: false });
-             setSelectedCity(cityData.name);
-             // For live analysis, we want to be specific: "BZU in Multan"
-             liveAnalysisQuery = `${searchInput} in ${cityData.name}`;
+            setResult({ data: cityData, distance: 0, isExactMatch: false });
+            setSelectedCity(cityData.name);
+            liveQuery = `${searchInput} in ${cityData.name}`;
+          }
+        } else if (selectedCity) {
+          // 3. FALLBACK: Use selected city if everything else fails
+          const cityData = CITIES_DATA.find(c => c.name === selectedCity);
+          if (cityData) {
+            setResult({ data: cityData, distance: 0, isExactMatch: false });
+            // Do not clear selectedCity
+            liveQuery = `${searchInput} in ${selectedCity}`;
           }
         } else {
-          // 4. Fallback Logic
-          // If no match found via Database or AI...
-          
-          if (selectedCity) {
-             // ...but the user has a City selected? Fallback to showing that City's data.
-             const cityData = CITIES_DATA.find(c => c.name === selectedCity);
-             if (cityData) {
-               setResult({ data: cityData, distance: 0, isExactMatch: false });
-               // Keep the selected city as is.
-               // Live analysis query remains specific: e.g. "Main Road in Multan"
-               liveAnalysisQuery = `${searchInput} in ${selectedCity}`;
-             }
-          } else {
-             // ...and no City selected? Show Custom Unknown Location.
-             const customData: WaterData = {
-                id: 'custom',
-                name: searchInput,
-                nameUrdu: searchInput,
-                lat: 0,
-                lng: 0,
-                safePercentage: 0,
-                unsafePercentage: 0,
-                status: 'Unknown',
-                contaminants: [],
-                description: 'This location is not in the 2021 PCRWR database. Using live analysis to find latest reports.',
-                samplePoints: []
-             };
-             setResult({ data: customData, distance: 0, isExactMatch: true });
-             // Clear selected city as this is a truly unknown custom location
-             setSelectedCity('');
-          }
+          // 4. ABSOLUTE FALLBACK: Custom Unknown Location
+          const customData: WaterData = {
+            id: 'custom',
+            name: searchInput,
+            nameUrdu: searchInput,
+            lat: 0, lng: 0,
+            safePercentage: 0, unsafePercentage: 0,
+            status: 'Unknown',
+            contaminants: [],
+            description: 'No historical record found. Performing live database scan...',
+            samplePoints: []
+          };
+          setResult({ data: customData, distance: 0, isExactMatch: true });
         }
       }
       
-      // Trigger live analysis
-      triggerLiveAnalysis(liveAnalysisQuery);
+      triggerLiveAnalysis(liveQuery);
 
     } catch (err) {
-      setError("An error occurred while searching. Please try again.");
+      setError("Analysis system busy. Please try again in a moment.");
     } finally {
       setLoading(false);
     }
@@ -249,26 +217,15 @@ const App: React.FC = () => {
         });
 
         if (nearestCity) {
-          const threshold = 20; 
           const city = nearestCity as WaterData;
-          setResult({
-            data: city,
-            distance: minDistance,
-            isExactMatch: minDistance <= threshold
-          });
-          if (minDistance <= threshold) {
-             setSelectedCity(city.name);
-             triggerLiveAnalysis(city.name);
-          } else {
-             // If far, just analyze the coordinates or generic city
-             triggerLiveAnalysis(city.name);
-          }
+          setResult({ data: city, distance: minDistance, isExactMatch: minDistance <= 20 });
+          if (minDistance <= 20) setSelectedCity(city.name);
+          triggerLiveAnalysis(city.name);
         }
         setLoading(false);
       },
-      (err) => {
-        console.error(err);
-        setError("Unable to retrieve your location. Please enable permissions.");
+      () => {
+        setError("Location access denied. Please select a city manually.");
         setLoading(false);
       }
     );
@@ -276,7 +233,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 p-4 sticky top-0 z-20 shadow-sm">
         <div className="max-w-md mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -294,10 +250,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-1 w-full max-w-md mx-auto p-4 flex flex-col">
-        
-        {/* Hero Text */}
         <div className="text-center py-8">
           <h2 className="text-2xl font-bold text-slate-800 mb-2">Is Your Water Safe?</h2>
           <p className="text-slate-500 text-sm leading-relaxed max-w-[260px] mx-auto">
@@ -305,10 +258,7 @@ const App: React.FC = () => {
           </p>
         </div>
 
-        {/* Search Section */}
         <div className="bg-white p-4 rounded-3xl shadow-xl shadow-slate-200/60 border border-white mb-6 space-y-4 relative z-10" ref={searchContainerRef}>
-          
-          {/* City Dropdown */}
           <div className="relative group">
              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <MapPin className="h-5 w-5 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
@@ -337,7 +287,7 @@ const App: React.FC = () => {
             <form onSubmit={handleSearch} className="relative">
               <input
                 type="text"
-                placeholder="e.g. Mandi Morr, DHA..."
+                placeholder="e.g. BZU, DHA, Mandi Morr..."
                 className="w-full pl-12 pr-14 py-4 rounded-xl bg-slate-50 border-2 border-slate-100 focus:border-blue-500 outline-none text-slate-800 font-medium placeholder-slate-400 transition-all shadow-inner"
                 value={searchInput}
                 onChange={handleInputChange}
@@ -353,7 +303,6 @@ const App: React.FC = () => {
               </button>
             </form>
 
-            {/* Autocomplete Dropdown */}
             {showSuggestions && suggestions.length > 0 && (
               <ul className="absolute left-0 right-0 top-full mt-2 bg-white rounded-xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden z-20">
                 {suggestions.map((item, idx) => (
@@ -383,22 +332,19 @@ const App: React.FC = () => {
           </button>
         </div>
 
-        {/* Loading State */}
         {loading && !result && (
           <div className="flex flex-col items-center justify-center py-12 text-slate-400">
             <Loader2 className="w-8 h-8 animate-spin mb-3 text-blue-600" />
-            <p className="text-sm font-medium">Analyzing water quality data...</p>
+            <p className="text-sm font-medium">Connecting to Water Report Database...</p>
           </div>
         )}
 
-        {/* Error State */}
         {error && (
           <div className="bg-red-50 text-red-600 p-4 rounded-xl border border-red-100 text-center text-sm font-medium">
             {error}
           </div>
         )}
 
-        {/* Result Card */}
         {result && (
           <>
             <ResultCard 
@@ -407,16 +353,15 @@ const App: React.FC = () => {
               isExactMatch={result.isExactMatch} 
             />
             
-            {/* Live Analysis Section */}
             {analysisLoading ? (
               <div className="w-full max-w-md mx-auto mt-4 p-6 bg-white/50 rounded-3xl border border-indigo-100 flex flex-col items-center justify-center text-center">
                 <Sparkles className="w-6 h-6 text-indigo-400 mb-2 animate-spin-slow" />
-                <p className="text-xs font-semibold text-indigo-400">Verifying with Official Govt Databases...</p>
+                <p className="text-xs font-semibold text-indigo-400">Consulting Live Analyst Reports...</p>
               </div>
             ) : analysisError ? (
                <div className="w-full max-w-md mx-auto mt-4 p-4 bg-slate-100 rounded-3xl border border-slate-200 flex items-center gap-3 text-slate-500">
                   <AlertCircle className="w-5 h-5 shrink-0" />
-                  <p className="text-xs">Live verification unavailable. Please check your network or API Key.</p>
+                  <p className="text-xs">Live verification unavailable. Check API Key or Network.</p>
                </div>
             ) : (
               analysisResult && (
@@ -426,10 +371,9 @@ const App: React.FC = () => {
           </>
         )}
 
-        {/* Footer */}
         <div className="mt-auto pt-8 pb-4 text-center">
           <p className="text-[10px] text-slate-400 max-w-xs mx-auto">
-            © 2024 Volumatic Water Tester
+            © 2024 Volumatic Water Tester • v2.0
           </p>
         </div>
       </main>

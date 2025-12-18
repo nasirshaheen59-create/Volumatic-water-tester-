@@ -1,16 +1,31 @@
 import { GoogleGenAI } from "@google/genai";
 import { CITIES_DATA } from "../constants";
 
-// Moved client initialization inside functions to prevent top-level execution crashes
-// if process.env is not immediately available during module loading.
+/**
+ * Safely initializes the GoogleGenAI client.
+ * Static hosts like Vercel/Netlify sometimes don't shim 'process' in the browser.
+ */
+const getAIClient = () => {
+  try {
+    const apiKey = typeof process !== 'undefined' ? process.env.API_KEY : undefined;
+    if (!apiKey) {
+      console.warn("API Key is not defined in the environment. AI features will be limited.");
+      return null;
+    }
+    return new GoogleGenAI({ apiKey });
+  } catch (e) {
+    console.error("Failed to initialize GoogleGenAI:", e);
+    return null;
+  }
+};
 
 export const findNearestCityByName = async (userInput: string): Promise<string | null> => {
+  const ai = getAIClient();
+  if (!ai) return null;
+
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const cityNames = CITIES_DATA.map(c => c.name).join(", ");
     
-    // We ask Gemini to map the user input to one of our specific cities.
-    // Updated prompt to handle landmarks, universities, and abbreviations better.
     const prompt = `
       You are a smart location resolver for a Water Safety App in Pakistan.
       
@@ -21,11 +36,11 @@ export const findNearestCityByName = async (userInput: string): Promise<string |
       
       Task:
       1. Determine if the search query refers to a location, landmark, university, hospital, colony, or area inside or very close to one of the Supported Cities.
-      2. If yes, return the exact name of that City.
+      2. If yes, return the exact name of that City from the Supported Cities list.
       3. Handles abbreviations: "BZ University" or "BZU" -> "Multan". "LUMS" -> "Lahore". "NUST" -> "Islamabad".
       4. If the query is unrelated to Pakistan or these cities, return "null".
       
-      Return ONLY the City Name or "null". Do not add any punctuation or extra text.
+      Return ONLY the City Name or "null". No punctuation.
     `;
 
     const response = await ai.models.generateContent({
@@ -36,12 +51,11 @@ export const findNearestCityByName = async (userInput: string): Promise<string |
     const text = response.text?.trim();
     if (!text || text.toLowerCase() === 'null') return null;
     
-    // Validate if the returned text matches one of our cities
     const match = CITIES_DATA.find(c => c.name.toLowerCase() === text.toLowerCase());
     return match ? match.name : null;
 
   } catch (error) {
-    console.error("Gemini API Error:", error);
+    console.error("Gemini API Error (Location Resolve):", error);
     return null;
   }
 };
@@ -52,7 +66,8 @@ export interface AnalysisResult {
 }
 
 export const getWaterQualityAnalysis = async (location: string): Promise<AnalysisResult | null> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAIClient();
+  if (!ai) return null;
   
   const prompt = `
     You are a Water Quality Data Analyst for Pakistan.
@@ -74,7 +89,6 @@ export const getWaterQualityAnalysis = async (location: string): Promise<Analysi
   `;
 
   try {
-    // Attempt 1: Try WITH Google Search Grounding
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
@@ -86,50 +100,31 @@ export const getWaterQualityAnalysis = async (location: string): Promise<Analysi
     const text = response.text;
     if (!text) throw new Error("No text returned");
 
-    // Extract sources from grounding metadata
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources = groundingChunks
       .map((chunk: any) => chunk.web)
       .filter((web: any) => web && web.uri && web.title)
       .map((web: any) => ({ title: web.title, uri: web.uri }));
 
-    // Deduplicate sources by URI
     const uniqueSources = Array.from(new Map(sources.map((item: any) => [item.uri, item])).values()) as { title: string; uri: string }[];
 
-    return {
-      text,
-      sources: uniqueSources
-    };
+    return { text, sources: uniqueSources };
 
   } catch (error: any) {
-    // Check for 403 Permission Denied or other tool-related errors
-    if (
-      error.toString().includes('403') || 
-      error.toString().includes('PERMISSION_DENIED') || 
-      error.status === 403
-    ) {
-      console.warn("Search Grounding unavailable (403). Falling back to basic model knowledge.");
-      
+    if (error.toString().includes('403') || error.toString().includes('PERMISSION_DENIED')) {
       try {
-        // Attempt 2: Fallback WITHOUT tools (Pure LLM knowledge)
         const fallbackResponse = await ai.models.generateContent({
           model: 'gemini-2.5-flash',
-          contents: prompt + "\n\n(Note: Live search is unavailable, please provide analysis based on your internal knowledge base up to your cutoff.)",
+          contents: prompt + "\n\n(Note: Live search is unavailable, please provide analysis based on your internal knowledge base.)",
         });
 
         if (fallbackResponse.text) {
-          return {
-            text: fallbackResponse.text,
-            sources: [] // No live sources available in fallback
-          };
+          return { text: fallbackResponse.text, sources: [] };
         }
       } catch (fallbackError) {
-        console.error("Gemini Fallback Analysis Error:", fallbackError);
         return null;
       }
     }
-    
-    console.error("Gemini Analysis Error:", error);
     return null;
   }
 };
