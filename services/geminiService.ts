@@ -7,7 +7,26 @@ import { CITIES_DATA } from "../constants";
  */
 const getAIClient = () => {
   try {
-    const apiKey = typeof process !== 'undefined' ? process.env.API_KEY : undefined;
+    // 1. Try VITE_ prefixed environment variable from import.meta.env
+    let apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+
+    // 2. Try the replaced process.env values from Vite define
+    if (!apiKey) {
+      const defineGeminiKey = process.env.GEMINI_API_KEY;
+      const defineApiKey = process.env.API_KEY;
+
+      if (defineGeminiKey && typeof defineGeminiKey === 'string' && !defineGeminiKey.startsWith('process.env.')) {
+        apiKey = defineGeminiKey;
+      } else if (defineApiKey && typeof defineApiKey === 'string' && !defineApiKey.startsWith('process.env.')) {
+        apiKey = defineApiKey;
+      }
+    }
+
+    // 3. Runtime fallback if process is shimmed
+    if (!apiKey && typeof process !== 'undefined' && process.env) {
+      apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    }
+
     if (!apiKey) {
       console.warn("API Key is not defined in the environment. AI features will be limited.");
       return null;
