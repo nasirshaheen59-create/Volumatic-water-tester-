@@ -25,8 +25,26 @@ const App: React.FC = () => {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [analysisError, setAnalysisError] = useState<boolean>(false);
+  const [analysisDuration, setAnalysisDuration] = useState<number>(0);
   
   const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let timerId: any = null;
+    if (analysisLoading) {
+      setAnalysisDuration(0);
+      timerId = setInterval(() => {
+        setAnalysisDuration(prev => prev + 1);
+      }, 1000);
+    } else {
+      setAnalysisDuration(0);
+    }
+    return () => {
+      if (timerId) {
+        clearInterval(timerId);
+      }
+    };
+  }, [analysisLoading]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -354,9 +372,25 @@ const App: React.FC = () => {
             />
             
             {analysisLoading ? (
-              <div className="w-full max-w-md mx-auto mt-4 p-6 bg-white/50 rounded-3xl border border-indigo-100 flex flex-col items-center justify-center text-center">
-                <Sparkles className="w-6 h-6 text-indigo-400 mb-2 animate-spin-slow" />
-                <p className="text-xs font-semibold text-indigo-400">Consulting Live Analyst Reports...</p>
+              <div className="w-full max-w-md mx-auto mt-4 p-6 bg-gradient-to-br from-indigo-50/50 to-blue-50/50 rounded-3xl border border-indigo-100 flex flex-col items-center justify-center text-center shadow-lg shadow-indigo-100/30">
+                <div className="relative mb-3 flex items-center justify-center">
+                  <div className="absolute w-12 h-12 rounded-full bg-indigo-100/80 animate-ping"></div>
+                  <Sparkles className="w-7 h-7 text-indigo-600 relative z-10 animate-spin-slow" />
+                </div>
+                
+                <h4 className="text-sm font-bold text-indigo-950 mb-1">
+                  Generating Live Quality Report...
+                </h4>
+                <p className="text-xs text-indigo-600/95 font-medium mb-3">
+                  Please wait while our system prepares your live water analysis.
+                </p>
+                
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-white border border-indigo-200/60 rounded-full shadow-sm">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                  <span className="text-[11px] font-mono text-indigo-700 font-bold">
+                    Time: {analysisDuration}s
+                  </span>
+                </div>
               </div>
             ) : analysisError ? (
                <div className="w-full max-w-md mx-auto mt-4 p-4 bg-slate-100 rounded-3xl border border-slate-200 flex items-center gap-3 text-slate-500">
