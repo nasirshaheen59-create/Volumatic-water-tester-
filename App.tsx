@@ -6,6 +6,7 @@ import { findNearestCityByName, getWaterQualityAnalysis } from './services/gemin
 import type { AnalysisResult } from './services/geminiService';
 import ResultCard from './components/ResultCard';
 import LiveAnalysisCard from './components/LiveAnalysisCard';
+import AwarenessBanner from './components/AwarenessBanner';
 
 interface Suggestion {
   name: string;
@@ -237,7 +238,8 @@ const App: React.FC = () => {
         if (nearestCity) {
           const city = nearestCity as WaterData;
           setResult({ data: city, distance: minDistance, isExactMatch: minDistance <= 20 });
-          if (minDistance <= 20) setSelectedCity(city.name);
+          setSelectedCity(city.name);
+          setSearchInput(`Current Location (${city.name})`);
           triggerLiveAnalysis(city.name);
         }
         setLoading(false);
@@ -392,15 +394,44 @@ const App: React.FC = () => {
                   </span>
                 </div>
               </div>
-            ) : analysisError ? (
-               <div className="w-full max-w-md mx-auto mt-4 p-4 bg-slate-100 rounded-3xl border border-slate-200 flex items-center gap-3 text-slate-500">
-                  <AlertCircle className="w-5 h-5 shrink-0" />
-                  <p className="text-xs">Live verification unavailable. Check API Key or Network.</p>
-               </div>
             ) : (
-              analysisResult && (
-                <LiveAnalysisCard analysis={analysisResult} locationName={result.data.name} />
-              )
+              <div className="space-y-4">
+                {analysisResult ? (
+                  <LiveAnalysisCard analysis={analysisResult} locationName={result.data.name} />
+                ) : (
+                  <div className="w-full max-w-md mx-auto mt-4 bg-white rounded-3xl border border-blue-100 shadow-xl shadow-blue-50/50 overflow-hidden animate-fade-in-up">
+                    <div className="bg-gradient-to-r from-blue-500 to-slate-600 p-4 flex items-center gap-3">
+                      <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                        <Info className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                         <h3 className="text-white font-bold text-sm leading-tight">Historical Record Verification</h3>
+                         <p className="text-blue-100 text-[10px] font-medium">Using Cached PCRWR & HUD-PHED Data</p>
+                      </div>
+                    </div>
+                    
+                    <div className="p-6">
+                      <div className="prose prose-sm max-w-none text-slate-600 text-sm leading-relaxed mb-4">
+                        <p>
+                          Based on offline reports, the water quality in <span className="font-semibold text-slate-800">{result.data.name}</span> is generally recorded as <span className="font-semibold text-blue-600">{result.data.status}</span>.
+                          Approximately <span className="font-semibold text-green-600">{result.data.safePercentage}%</span> of testing points are safe, while <span className="font-semibold text-red-600">{result.data.unsafePercentage}%</span> show contamination issues.
+                          {result.data.contaminants && result.data.contaminants.length > 0 && (
+                            <span> Key contaminants of concern in this area historically include: <span className="font-semibold text-slate-700">{result.data.contaminants.join(', ')}</span>.</span>
+                          )}
+                          {" "}{result.data.description}
+                        </p>
+                      </div>
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2">
+                         <Info className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                         <p className="text-[10px] text-slate-400 font-medium italic">
+                           Showing high-fidelity historical data. Active online search is temporarily offline or rate-limited.
+                         </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <AwarenessBanner />
+              </div>
             )}
           </>
         )}

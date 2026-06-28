@@ -63,7 +63,7 @@ export const findNearestCityByName = async (userInput: string): Promise<string |
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.5-flash',
       contents: prompt,
     });
 
@@ -109,7 +109,7 @@ export const getWaterQualityAnalysis = async (location: string): Promise<Analysi
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.5-flash',
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
@@ -130,19 +130,19 @@ export const getWaterQualityAnalysis = async (location: string): Promise<Analysi
     return { text, sources: uniqueSources };
 
   } catch (error: any) {
-    if (error.toString().includes('403') || error.toString().includes('PERMISSION_DENIED')) {
-      try {
-        const fallbackResponse = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt + "\n\n(Note: Live search is unavailable, please provide analysis based on your internal knowledge base.)",
-        });
+    console.warn("Main search-grounded Gemini call failed, attempting fallback...", error);
+    try {
+      const fallbackResponse = await ai.models.generateContent({
+        model: 'gemini-3.5-flash',
+        contents: prompt + "\n\n(Note: Live search is currently unavailable. Please provide analysis based on your internal knowledge base about this location.)",
+      });
 
-        if (fallbackResponse.text) {
-          return { text: fallbackResponse.text, sources: [] };
-        }
-      } catch (fallbackError) {
-        return null;
+      if (fallbackResponse.text) {
+        return { text: fallbackResponse.text, sources: [] };
       }
+    } catch (fallbackError) {
+      console.error("Fallback Gemini call also failed:", fallbackError);
+      return null;
     }
     return null;
   }
